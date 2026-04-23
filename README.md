@@ -147,7 +147,7 @@ Go to [http://localhost:5173](http://localhost:5173) and start chatting!
 datachat/
 ├── backend/
 │   ├── main.py                 # FastAPI server + all API endpoints
-│   ├── agent.py                # LangChain AI agent with 7 tools
+│   ├── agent.py                # LangChain AI agent with 10 tools
 │   ├── openmetadata_client.py  # OpenMetadata REST API client
 │   ├── requirements.txt        # Python dependencies
 │   ├── test_agent.py           # Smoke tests
@@ -200,6 +200,127 @@ docker compose down
 # Stop and wipe all data:
 docker compose down --volumes
 ```
+
+## Troubleshooting
+
+### Docker Issues
+
+**"docker" is not recognized / Docker daemon not running**
+```
+error during connect: Get "http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/..."
+```
+→ Docker Desktop is not running. Open Docker Desktop from the Start menu and wait until the whale icon in the system tray shows "Docker Desktop is running". Then retry.
+
+**Port 3306/8585/9200 already in use**
+```
+Bind for 0.0.0.0:3306 failed: port is already allocated
+```
+→ Another service is using that port. Stop it first:
+```bash
+# Find what's using the port (Windows):
+netstat -ano | findstr :3306
+# Kill it:
+taskkill /PID <PID_NUMBER> /F
+```
+Or change the port in `docker-compose.yml`.
+
+**OpenMetadata containers keep restarting**
+```bash
+docker logs openmetadata_server
+```
+→ Check if MySQL and Elasticsearch are healthy first. The server waits for both. If you see `OutOfMemoryError`, increase Docker Desktop memory to at least 4GB (Settings → Resources → Memory).
+
+**Network openmetadata_app_net Error**
+```
+failed to create network openmetadata_app_net: Pool overlaps with other one
+```
+→ Run `docker network prune` to clean up unused networks, then retry.
+
+### Python Issues
+
+**"python" is not recognized**
+→ Python is not installed or not in PATH. Download from [python.org](https://www.python.org/downloads/). During installation, check "Add Python to PATH".
+
+**pydantic-core fails to build (Python 3.13+)**
+```
+Failed to build installable wheels for pydantic-core
+```
+→ Your Python version is too new for pre-built wheels. Fix:
+```bash
+pip install --only-binary pydantic-core pydantic-core
+pip install -r requirements.txt
+```
+
+**pip install hangs or is very slow**
+→ The `openmetadata-ingestion` package has many dependencies (~200). It can take 5-10 minutes on slow connections. Be patient, or use a faster mirror:
+```bash
+pip install -r requirements.txt -i https://pypi.org/simple/
+```
+
+**ModuleNotFoundError: No module named 'xxx'**
+→ You're not in the virtual environment. Activate it first:
+```bash
+# Windows:
+backend\venv\Scripts\activate
+# macOS/Linux:
+source backend/venv/bin/activate
+```
+
+### Backend Issues
+
+**"Password needs to be encoded in Base-64"**
+→ This is already handled in the code. If you see this, make sure you're using the latest version of `openmetadata_client.py`.
+
+**"Please set a real Groq API key in .env"**
+→ Edit `backend/.env` and replace `gsk_your_real_key_here` with your actual key from [console.groq.com](https://console.groq.com).
+
+**"Please reduce the length of the messages or completion" (400 error)**
+→ The conversation got too long. Simply refresh the browser page to start a fresh conversation. This resets the conversation ID and clears the history.
+
+**"Failed to call a function" / tool_use_failed**
+→ This can happen with certain LLM models. The project uses `qwen/qwen3-32b` which handles tool calling reliably. If you switched models, switch back:
+```python
+# In backend/agent.py
+llm = ChatGroq(model="qwen/qwen3-32b", ...)
+```
+
+**429 Too Many Requests from Groq**
+→ You've hit Groq's free tier rate limit. The SDK retries automatically with backoff. If it persists, wait 60 seconds or upgrade your Groq plan.
+
+### Frontend Issues
+
+**"npm" is not recognized**
+→ Node.js is not installed. Download from [nodejs.org](https://nodejs.org/) (LTS version recommended).
+
+**Port 5173 already in use**
+→ Vite will automatically try the next port (5174, 5175, etc.). Check the terminal output for the actual URL.
+
+**CORS errors in browser console**
+```
+Access to fetch at 'http://localhost:8000' has been blocked by CORS policy
+```
+→ The backend isn't running, or it crashed. Check the backend terminal for errors and restart:
+```bash
+cd backend
+uvicorn main:app --reload --port 8000
+```
+
+**Chat shows "Could not connect to the DataChat backend"**
+→ The backend at `http://localhost:8000` is not reachable. Make sure:
+1. The backend is running (`uvicorn main:app --reload --port 8000`)
+2. OpenMetadata is running (`docker ps` should show 4 containers)
+3. No firewall is blocking localhost connections
+
+### OpenMetadata Issues
+
+**No tables/dashboards showing up (empty catalog)**
+→ This is a fresh install. OpenMetadata ships with sample data that gets ingested via Airflow. Check if the sample DAGs ran:
+1. Go to [http://localhost:8080](http://localhost:8080) (Airflow)
+2. Login: admin / admin
+3. Check if sample data DAGs have run successfully
+
+**Login fails at localhost:8585**
+→ Default credentials are `admin@open-metadata.org` / `admin`. The server takes 1-2 minutes to fully start after `docker compose up`. Wait and retry.
 
 ## License
 
