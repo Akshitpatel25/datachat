@@ -44,7 +44,7 @@ React (Vite + Tailwind) → FastAPI → LangChain Agent → OpenMetadata REST AP
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/datachat.git
+git clone https://github.com/Akshitpatel25/datachat.git
 cd datachat
 ```
 
