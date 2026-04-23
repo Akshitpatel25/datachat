@@ -299,6 +299,117 @@ class OpenMetadataClient:
             logger.exception("OpenMetadata connection check failed")
             return False
 
+    # ------------------------------------------------- glossary / governance
+    def search_glossary(self, query: str) -> list[dict]:
+        """Search glossary terms by keyword."""
+        try:
+            data = self._get(
+                "/api/v1/search/query",
+                params={"q": query, "index": "glossaryTerm", "from": 0, "size": 5},
+            )
+        except Exception:
+            return []
+        hits = (
+            data.get("hits", {}).get("hits", [])
+            if "hits" in data
+            else data.get("data", [])
+        )
+        results: list[dict] = []
+        for hit in hits:
+            src = hit.get("_source", hit)
+            results.append({
+                "name": src.get("name", "N/A"),
+                "fullyQualifiedName": src.get("fullyQualifiedName", "N/A"),
+                "description": src.get("description", "No description"),
+                "glossary": src.get("glossary", {}).get("name", "N/A") if isinstance(src.get("glossary"), dict) else "N/A",
+                "tags": [t.get("tagFQN", "") for t in src.get("tags", [])],
+            })
+        return results
+
+    def get_glossary_terms(self, limit: int = 10) -> list[dict]:
+        """List glossary terms."""
+        try:
+            data = self._get("/api/v1/glossaryTerms", params={"limit": limit})
+        except Exception:
+            return []
+        results: list[dict] = []
+        for t in data.get("data", []):
+            results.append({
+                "name": t.get("name", "N/A"),
+                "fullyQualifiedName": t.get("fullyQualifiedName", "N/A"),
+                "description": t.get("description", "No description"),
+                "glossary": t.get("glossary", {}).get("name", "N/A") if isinstance(t.get("glossary"), dict) else "N/A",
+            })
+        return results
+
+    # ------------------------------------------------- table profile / freshness
+    def get_table_profile(self, fqn: str) -> dict | None:
+        """Get the latest profiler data for a table."""
+        try:
+            data = self._get(
+                f"/api/v1/tables/name/{fqn}",
+                params={"fields": "profile,tableProfilerConfig"},
+            )
+            profile = data.get("profile")
+            if not profile:
+                return None
+            return {
+                "rowCount": profile.get("rowCount"),
+                "columnCount": profile.get("columnCount"),
+                "createDateTime": profile.get("createDateTime"),
+                "timestamp": profile.get("timestamp"),
+            }
+        except Exception:
+            return None
+
+    def get_stale_tables(self, days: int = 7, limit: int = 20) -> list[dict]:
+        """Find tables that haven't been profiled/updated recently."""
+        import time
+        cutoff_ms = int((time.time() - days * 86400) * 1000)
+        try:
+            data = self._get(
+                "/api/v1/tables",
+                params={"limit": limit, "fields": "profile,owners"},
+            )
+        except Exception:
+            return []
+        stale: list[dict] = []
+        fresh: list[dict] = []
+        for t in data.get("data", []):
+            profile = t.get("profile")
+            name = t.get("name", "N/A")
+            fqn_val = t.get("fullyQualifiedName", "N/A")
+            owner = _extract_owner(t)
+            if not profile or not profile.get("timestamp"):
+                stale.append({
+                    "name": name,
+                    "fullyQualifiedName": fqn_val,
+                    "owner": owner,
+                    "lastProfiled": "Never",
+                    "status": "no_profile",
+                })
+            elif profile.get("timestamp", 0) < cutoff_ms:
+                from datetime import datetime, timezone
+                ts = datetime.fromtimestamp(profile["timestamp"] / 1000, tz=timezone.utc)
+                stale.append({
+                    "name": name,
+                    "fullyQualifiedName": fqn_val,
+                    "owner": owner,
+                    "lastProfiled": ts.strftime("%Y-%m-%d"),
+                    "status": "stale",
+                })
+            else:
+                from datetime import datetime, timezone
+                ts = datetime.fromtimestamp(profile["timestamp"] / 1000, tz=timezone.utc)
+                fresh.append({
+                    "name": name,
+                    "fullyQualifiedName": fqn_val,
+                    "owner": owner,
+                    "lastProfiled": ts.strftime("%Y-%m-%d"),
+                    "status": "fresh",
+                })
+        return stale[:10]
+
 
 # ----------------------------------------------------------------- helpers
 def _extract_owner(data: dict) -> str:

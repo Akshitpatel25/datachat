@@ -48,8 +48,14 @@ def _get_suggestions(message: str) -> list[str]:
     msg = message.lower()
     if "lineage" in msg:
         return ["Who owns this data asset?", "Are there any data quality tests?"]
+    if "glossary" in msg or "definition" in msg or "mean" in msg:
+        return ["Show me all glossary terms", "What governance policies apply?"]
+    if "stale" in msg or "fresh" in msg or "outdated" in msg:
+        return ["Show me table profiler stats", "Which tables have data quality tests?"]
+    if "profile" in msg or "row count" in msg or "rows" in msg:
+        return ["Is this table stale?", "Show me the lineage of this table"]
     if "table" in msg:
-        return ["What columns does this table have?", "Show me the lineage of this table"]
+        return ["What columns does this table have?", "Show me the profiler stats for this table"]
     if "pii" in msg:
         return ["Who owns these PII assets?", "What governance policies apply?"]
     if "dashboard" in msg:
@@ -57,7 +63,7 @@ def _get_suggestions(message: str) -> list[str]:
     if "column" in msg:
         return ["Show me the lineage of this table", "Are there data quality tests?"]
     if "quality" in msg:
-        return ["Show me the table details", "What is the lineage?"]
+        return ["Show me the table details", "Which tables are stale?"]
     if "owner" in msg:
         return ["Show me all tables", "Find any PII data"]
     return ["Show me all available tables", "Find any PII data"]
@@ -140,9 +146,9 @@ def sample_questions():
         "What tables are available in my data catalog?",
         "Show me all datasets that contain PII data",
         "What is the lineage of the dim_address table?",
-        "Who owns the customer data assets?",
-        "Find all dashboards related to revenue",
-        "What columns does the fact_sale table have?",
+        "Which tables haven't been updated recently?",
+        "What does 'customer lifetime value' mean in our glossary?",
+        "Show me profiler stats for the fact_sale table",
     ]
 
 

@@ -183,14 +183,91 @@ def list_dashboards() -> str:
         return f"Error listing dashboards: {exc}"
 
 
+@tool
+def search_glossary(query: str) -> str:
+    """Search the data glossary for business term definitions.
+    Use this when users ask about the meaning of data terms, business definitions,
+    or governance policies. Example: 'What does churn rate mean?'"""
+    try:
+        results = _get_client().search_glossary(query)
+        if not results:
+            # Fallback: list all glossary terms
+            results = _get_client().get_glossary_terms(limit=10)
+            if not results:
+                return "No glossary terms found in the catalog."
+            lines = ["Available glossary terms:"]
+            for t in results:
+                lines.append(f"- **{t['name']}** ({t['glossary']}): {t['description'][:100]}")
+            return "\n".join(lines)
+        lines = [f"Glossary results for '{query}':\n"]
+        for t in results:
+            tags_str = ", ".join(t.get("tags", [])) if t.get("tags") else "none"
+            lines.append(f"- **{t['name']}** (glossary: {t['glossary']})")
+            lines.append(f"  Definition: {t['description'][:200]}")
+            lines.append(f"  Tags: {tags_str}")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.exception("search_glossary failed")
+        return f"Error searching glossary: {exc}"
+
+
+@tool
+def get_table_profile(fqn: str) -> str:
+    """Get data profiler statistics for a table — row count, column count, and last profiled date.
+    IMPORTANT: Requires the fully qualified name.
+    Use this for data observability questions like 'How many rows does this table have?'
+    or 'When was this table last profiled?'"""
+    try:
+        profile = _get_client().get_table_profile(fqn)
+        if not profile:
+            return f"No profiler data available for {fqn}. The table may not have been profiled yet."
+        lines = [f"Profiler Stats for {fqn}:\n"]
+        if profile.get("rowCount") is not None:
+            lines.append(f"  - Row count: {profile['rowCount']:,}")
+        if profile.get("columnCount") is not None:
+            lines.append(f"  - Column count: {profile['columnCount']}")
+        if profile.get("timestamp"):
+            from datetime import datetime, timezone
+            ts = profile["timestamp"]
+            if isinstance(ts, (int, float)):
+                dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            else:
+                dt = str(ts)
+            lines.append(f"  - Last profiled: {dt}")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.exception("get_table_profile failed")
+        return f"Error fetching table profile: {exc}"
+
+
+@tool
+def find_stale_tables(days: int = 7) -> str:
+    """Find tables that haven't been updated or profiled recently.
+    Use this for data freshness and observability questions like
+    'Which tables are stale?' or 'What data hasn't been updated recently?'
+    The days parameter controls how many days back to check (default: 7)."""
+    try:
+        results = _get_client().get_stale_tables(days=days, limit=20)
+        if not results:
+            return f"All tables appear to be fresh (profiled within the last {days} days), or no profiler data is available."
+        lines = [f"Tables not profiled in the last {days} days:\n"]
+        for t in results:
+            status = "⚠️ Never profiled" if t["lastProfiled"] == "Never" else f"Last profiled: {t['lastProfiled']}"
+            lines.append(f"- {t['name']} (owner: {t['owner']}) — {status}")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.exception("find_stale_tables failed")
+        return f"Error checking stale tables: {exc}"
+
+
 # ------------------------------------------------------------ agent setup
 SYSTEM_PROMPT = (
     "You are DataChat, an intelligent data catalog assistant powered by OpenMetadata. "
     "You help users discover, understand, and explore their organization's data assets "
     "using natural language.\n\n"
     "CRITICAL RULES:\n"
-    "- Tools like get_table_details, get_data_lineage, get_data_quality require a "
-    "fully qualified name (FQN) like 'sample_data.ecommerce_db.shopify.dim_address'. "
+    "- Tools like get_table_details, get_data_lineage, get_data_quality, get_table_profile "
+    "require a fully qualified name (FQN) like 'sample_data.ecommerce_db.shopify.dim_address'. "
     "If the user gives only a short name like 'dim_address', FIRST call search_data_assets "
     "to find the FQN, then use that FQN in subsequent tool calls.\n"
     "- If a tool returns empty results or 'No ... found', report that immediately. "
@@ -198,7 +275,10 @@ SYSTEM_PROMPT = (
     "- NEVER call the same tool more than once with the same arguments.\n"
     "- Present results in clean markdown format.\n"
     "- Be concise but informative.\n"
-    "- For lineage, explain upstream (data sources) and downstream (dependents) clearly."
+    "- For lineage, explain upstream (data sources) and downstream (dependents) clearly.\n"
+    "- For glossary questions about business terms or definitions, use search_glossary.\n"
+    "- For data freshness or observability questions, use find_stale_tables or get_table_profile.\n"
+    "- For data quality questions, use get_data_quality."
 )
 
 TOOLS = [
@@ -206,6 +286,9 @@ TOOLS = [
     get_table_details,
     get_data_lineage,
     get_data_quality,
+    get_table_profile,
+    find_stale_tables,
+    search_glossary,
     list_all_tables,
     find_pii_data,
     list_dashboards,
