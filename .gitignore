@@ -1,0 +1,26 @@
+# Python
+backend/venv/
+backend/__pycache__/
+*.pyc
+*.pyo
+backend/.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Docker volumes
+docker-volume/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.log
