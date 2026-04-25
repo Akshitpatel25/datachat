@@ -281,3 +281,85 @@ def explorer_columns(tables: list[str] = fastapi.Query(...)):
             "columns": columns,
         })
     return results
+
+
+@app.get("/explorer/quality")
+def explorer_quality(table: str):
+    """Get data quality test results for a table."""
+    client = _get_om_client()
+    table_name = table.rsplit(".", 1)[-1] if "." in table else table
+
+    # Try fetching test cases via entityLink
+    encoded = table.replace('"', "%22")
+    entity_link = f"<#E::table::{encoded}>"
+    tests = []
+    try:
+        data = client._get(
+            "/api/v1/dataQuality/testCases",
+            params={"entityLink": entity_link, "limit": 20},
+        )
+        for tc in data.get("data", []):
+            result = tc.get("testCaseResult", {})
+            status = result.get("testCaseStatus", "UNKNOWN")
+            col_name = ""
+            param_vals = tc.get("parameterValues", [])
+            if param_vals:
+                col_name = param_vals[0].get("value", "") if param_vals else ""
+            # Try to get column from entityLink
+            tc_link = tc.get("entityLink", "")
+            if "::columns::" in tc_link:
+                col_name = tc_link.split("::columns::")[-1].rstrip(">")
+            tests.append({
+                "name": tc.get("name", "N/A"),
+                "status": status,
+                "column": col_name,
+            })
+    except Exception:
+        pass
+
+    # Also try fetching from table's testSuite field
+    if not tests:
+        try:
+            tbl_data = client._get(
+                f"/api/v1/tables/name/{table}",
+                params={"fields": "testSuite"},
+            )
+            test_suite = tbl_data.get("testSuite")
+            if test_suite and test_suite.get("id"):
+                suite_id = test_suite["id"]
+                suite_data = client._get(
+                    f"/api/v1/dataQuality/testSuites/{suite_id}",
+                    params={"fields": "tests"},
+                )
+                for tc in suite_data.get("tests", []):
+                    tests.append({
+                        "name": tc.get("name", "N/A"),
+                        "status": "UNKNOWN",
+                        "column": "",
+                    })
+        except Exception:
+            pass
+
+    if not tests:
+        return {
+            "tableName": table_name,
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "score": None,
+            "tests": [],
+        }
+
+    passed = sum(1 for t in tests if t["status"] in ("Success", "PASSED"))
+    failed = sum(1 for t in tests if t["status"] in ("Failed", "FAILED"))
+    total = len(tests)
+    score = round((passed / total) * 100) if total > 0 else None
+
+    return {
+        "tableName": table_name,
+        "total": total,
+        "passed": passed,
+        "failed": failed,
+        "score": score,
+        "tests": tests[:5],
+    }

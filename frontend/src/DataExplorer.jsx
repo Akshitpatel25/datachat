@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 
 const API = 'http://localhost:8000'
 
@@ -161,6 +161,71 @@ function Step2({ service, onSelect, onBack }) {
 }
 
 /* ─── Step 3: Column picker + Charts ─── */
+function QualityCard({ tableFqn, tableName }) {
+  const [qData, setQData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch(`${API}/explorer/quality?table=${encodeURIComponent(tableFqn)}`)
+      .then(r => r.json()).then(setQData).catch(() => {})
+      .finally(() => setLoading(false))
+  }, [tableFqn])
+
+  if (loading) return <div className="skeleton-shimmer h-24 rounded-lg" />
+
+  if (!qData || qData.score === null) {
+    return (
+      <div className="bg-[#1a1a1a] border border-[#333] rounded-[10px] p-3.5">
+        <div className="text-[11px] text-gray-500 mb-1">{tableName}</div>
+        <div className="text-center py-3">
+          <div className="text-gray-500 text-xs">No data quality tests configured</div>
+          <div className="text-[10px] text-gray-600 mt-1">Run tests in OpenMetadata to see results</div>
+        </div>
+      </div>
+    )
+  }
+
+  const scoreColor = qData.score >= 80 ? '#22c55e' : qData.score >= 60 ? '#f59e0b' : '#ef4444'
+
+  return (
+    <div className="bg-[#1a1a1a] border border-[#333] rounded-[10px] p-3.5">
+      <div className="text-[11px] text-gray-500 mb-2">{tableName}</div>
+      <div className="flex items-center gap-4">
+        {/* Score circle */}
+        <div className="relative w-16 h-16 shrink-0">
+          <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+            <circle cx="18" cy="18" r="15" fill="none" stroke="#2a2a2a" strokeWidth="3" />
+            <circle cx="18" cy="18" r="15" fill="none" stroke={scoreColor} strokeWidth="3"
+                    strokeDasharray={`${qData.score * 0.94} 100`} strokeLinecap="round" />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-sm font-bold text-white">{qData.score}%</span>
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex gap-3 text-[11px] mb-2">
+            <span className="text-green-400">✅ {qData.passed} Passed</span>
+            <span className="text-red-400">❌ {qData.failed} Failed</span>
+          </div>
+          <div className="space-y-0.5">
+            {qData.tests.slice(0, 3).map((t, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-[11px]">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.status === 'Success' ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-gray-400 truncate">{t.name}</span>
+                {t.column && <span className="text-gray-600 text-[10px] shrink-0">({t.column})</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const CHART_SECTION = "bg-[#1a1a1a] border border-[#333] rounded-[10px] p-3.5 mb-3"
+const CHART_TITLE = "text-[11px] font-semibold text-[#9ca3af] uppercase tracking-[1px] mb-2.5"
+const BAR_COLORS = ['#2563eb', '#22c55e', '#f59e0b']
+
 function Step3({ tables, onBack, onSendMessage }) {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
@@ -201,11 +266,6 @@ function Step3({ tables, onBack, onSendMessage }) {
   const selCols = getSelectedColumns()
   const piiCount = selCols.filter(c => c.isPII).length
   const cleanCount = selCols.length - piiCount
-
-  // Chart data
-  const typeCounts = {}
-  selCols.forEach(c => { typeCounts[c.dataType] = (typeCounts[c.dataType] || 0) + 1 })
-  const typeData = Object.entries(typeCounts).map(([name, value]) => ({ name, value }))
 
   const colsPerTable = {}
   selCols.forEach(c => { colsPerTable[c.tableName] = (colsPerTable[c.tableName] || 0) + 1 })
@@ -265,7 +325,7 @@ function Step3({ tables, onBack, onSendMessage }) {
 
       {/* Charts */}
       {showCharts && selCols.length > 0 && (
-        <div className="space-y-4 animate-fade-in border-t border-[#333] pt-3">
+        <div className="space-y-3 animate-fade-in border-t border-[#333] pt-3">
           {/* Summary row */}
           <div className="grid grid-cols-3 gap-2">
             <div className="bg-[#1a1a1a] rounded-lg p-2 text-center">
@@ -282,56 +342,66 @@ function Step3({ tables, onBack, onSendMessage }) {
             </div>
           </div>
 
-          {/* Data type donut */}
-          {typeData.length > 0 && (
-            <div>
-              <h4 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Data Types</h4>
-              <div className="flex justify-center">
-                <PieChart width={160} height={160}>
-                  <Pie data={typeData} dataKey="value" nameKey="name"
-                       cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={2}>
-                    {typeData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                  </Pie>
-                </PieChart>
+          {/* Chart 1: Privacy & Sensitivity */}
+          <div className={CHART_SECTION}>
+            <h4 className={CHART_TITLE}>🔴 Privacy & Sensitivity</h4>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className="rounded-lg p-3 text-center"
+                   style={{
+                     background: piiCount > 0 ? '#2d1515' : '#1a1a1a',
+                     border: `1px solid ${piiCount > 0 ? '#ef4444' : '#333'}`,
+                   }}>
+                <div className="text-2xl font-bold" style={{ color: piiCount > 0 ? '#ef4444' : '#666' }}>
+                  {piiCount}
+                </div>
+                <div className="text-[10px] text-gray-400">Sensitive Columns</div>
               </div>
-              <div className="flex flex-wrap justify-center gap-2 mt-1">
-                {typeData.map((d, i) => (
-                  <span key={i} className="flex items-center gap-1 text-[10px] text-gray-400">
-                    <span className="w-2 h-2 rounded-full inline-block" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                    {d.name} <span className="text-white">{d.value}</span>
-                  </span>
-                ))}
+              <div className="rounded-lg p-3 text-center"
+                   style={{ background: '#0f2a1a', border: '1px solid #22c55e' }}>
+                <div className="text-2xl font-bold text-[#22c55e]">{cleanCount}</div>
+                <div className="text-[10px] text-gray-400">Clean Columns</div>
               </div>
             </div>
-          )}
-
-          {/* PII analysis */}
-          {piiCount > 0 && (
-            <div className="bg-[#1a1111] border border-[#3a2020] rounded-lg p-3">
-              <h4 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">PII Analysis</h4>
-              <div className="flex items-center gap-4 text-xs mb-2">
-                <span>🔴 {piiCount} PII</span>
-                <span>🟢 {cleanCount} Clean</span>
-              </div>
-              <div className="w-full h-2 bg-[#222] rounded-full overflow-hidden">
-                <div className="h-full bg-red-500 rounded-full"
+            <div className="w-full h-1.5 bg-[#222] rounded-full overflow-hidden flex">
+              {piiCount > 0 && (
+                <div className="h-full bg-[#ef4444] rounded-l-full"
                      style={{ width: `${(piiCount / selCols.length) * 100}%` }} />
-              </div>
+              )}
+              <div className="h-full bg-[#22c55e] flex-1 rounded-r-full" />
             </div>
-          )}
+            <div className="text-[10px] text-gray-500 mt-1.5 text-center">
+              {piiCount > 0
+                ? `${piiCount} of ${selCols.length} columns are sensitive`
+                : '✅ No sensitive columns detected'}
+            </div>
+          </div>
 
-          {/* Columns per table bar */}
+          {/* Chart 2: Data Quality */}
+          <div>
+            <h4 className={`${CHART_TITLE} px-1`}>✅ Data Quality</h4>
+            <div className="space-y-2">
+              {tables.map(t => (
+                <QualityCard key={t.fqn} tableFqn={t.fqn} tableName={t.name} />
+              ))}
+            </div>
+          </div>
+
+          {/* Chart 3: Table Comparison — only if 2-3 tables */}
           {tableBarData.length > 1 && (
-            <div>
-              <h4 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Columns per Table</h4>
-              <ResponsiveContainer width="100%" height={Math.max(80, tableBarData.length * 40)}>
-                <BarChart data={tableBarData} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
-                  <XAxis type="number" tick={{ fill: '#666', fontSize: 10 }} axisLine={false} />
-                  <YAxis type="category" dataKey="name" tick={{ fill: '#aaa', fontSize: 10 }}
-                         width={80} axisLine={false} tickLine={false} />
-                  <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={16}
-                       label={{ position: 'right', fill: '#aaa', fontSize: 10 }}>
-                    {tableBarData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % 3]} />)}
+            <div className={CHART_SECTION}>
+              <h4 className={CHART_TITLE}>📊 Table Comparison</h4>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={tableBarData} margin={{ top: 15, right: 10, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fill: '#aaa', fontSize: 10 }} axisLine={false} tickLine={false}
+                         tickFormatter={v => v.length > 12 ? v.slice(0, 12) + '…' : v} />
+                  <YAxis tick={{ fill: '#666', fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: '#222', border: '1px solid #444', borderRadius: 8, fontSize: 11 }}
+                           formatter={(v, n) => [`${v} columns`, '']}
+                           labelStyle={{ color: '#fff' }} />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]} barSize={40}
+                       label={{ position: 'top', fill: '#aaa', fontSize: 11 }}>
+                    {tableBarData.map((_, i) => <Cell key={i} fill={BAR_COLORS[i % 3]} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
