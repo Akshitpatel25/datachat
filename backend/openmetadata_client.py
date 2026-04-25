@@ -46,10 +46,15 @@ class OpenMetadataClient:
         return {"Authorization": f"Bearer {self.token}"}
 
     def _get(self, path: str, params: dict | None = None) -> Any:
-        """Issue an authenticated GET request."""
+        """Issue an authenticated GET request. Re-authenticates on 401."""
         url = f"{self.host}{path}"
         logger.info("GET %s  params=%s", url, params)
         resp = httpx.get(url, headers=self._headers, params=params, timeout=10)
+        if resp.status_code == 401:
+            logger.info("Token expired, re-authenticating…")
+            self._token = None
+            self.authenticate()
+            resp = httpx.get(url, headers=self._headers, params=params, timeout=10)
         resp.raise_for_status()
         return resp.json()
 

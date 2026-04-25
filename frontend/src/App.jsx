@@ -25,7 +25,7 @@ function MessageBubble({ message, suggestions, onSuggestionClick }) {
   return (
     <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} mb-4`}>
       {!isUser && <span className="text-xs text-muted mb-1 ml-1">🗄️ DataChat</span>}
-      <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+      <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed overflow-hidden ${
         isUser ? 'bg-bubble-user text-white rounded-br-md'
                : 'bg-bubble-assistant border border-border text-gray-100 rounded-bl-md'
       }`}>
